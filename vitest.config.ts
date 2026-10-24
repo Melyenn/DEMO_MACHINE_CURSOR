@@ -1,0 +1,19 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    globals: true,
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.git/**", "**/.stryker-tmp/**"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      // CLI modules are thin orchestration wrappers; we keep the coverage gate focused on core logic.
+      exclude: ["src/**/*.test.ts", "src/cli.ts", "src/cli/**/*.ts", "src/mcp-server.ts"],
+      thresholds: {
+        branches: 72,
+        functions: 80,
+        statements: 60,
+      },
+    },
+  },
+});

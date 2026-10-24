@@ -1,0 +1,54 @@
+meta:
+  title: "Hello World Demo"
+  resolution:
+    width: 1920
+    height: 1080
+  branding:
+    logo: "../hello-world/assets/logo.svg"
+    colors:
+      primary: "#3B82F6"
+      background: "#000000"
+
+runner:
+  command: "node examples/hello-world/serve.mjs"
+  url: "http://localhost:4574"
+  healthcheck: "http://localhost:4574/api/health"
+  timeout: 30000
+
+redaction:
+  selectors:
+    - ".user-email"
+    - "[data-sensitive]"
+  secrets:
+    - "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z]{2,}\\b"
+
+chapters:
+  - title: "Getting Started"
+    narration: "Let's walk through the setup process."
+    steps:
+      - action: navigate
+        url: "/"
+      - action: assert
+        target:
+          by: altText
+          text: "HelloWorld logo"
+        visible: true
+      - action: assert
+        target:
+          by: title
+          text: "Launch quickstart"
+        visible: true
+      - action: clickFirstVisible
+        selector: ".start-cta"
+        narration: "Click the first visible get started button."
+      - action: type
+        target:
+          by: placeholder
+          text: "name@company.com"
+        text: "demo@example.com"
+        narration: "Enter your email address."
+      - action: wait
+        timeout: 1000
+      - action: assert
+        selector: ".welcome-message"
+        visible: true

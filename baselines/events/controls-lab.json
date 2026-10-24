@@ -1,0 +1,101 @@
+[
+  {
+    "action": "navigate",
+    "timestamp": 1774414412189,
+    "duration": 283,
+    "narration": "Welcome to ControlRoom. Let's exercise common UI controls."
+  },
+  {
+    "action": "assert",
+    "timestamp": 1774414413712,
+    "duration": 42,
+    "selector": "target(testId:title)"
+  },
+  {
+    "action": "check",
+    "timestamp": 1774414413963,
+    "duration": 844,
+    "selector": "target(label:Enable alerts)",
+    "boundingBox": {
+      "x": 478,
+      "y": 441.6875,
+      "width": 18,
+      "height": 18
+    }
+  },
+  {
+    "action": "uncheck",
+    "timestamp": 1774414415600,
+    "duration": 950,
+    "selector": "target(label:Enable alerts)",
+    "boundingBox": {
+      "x": 478,
+      "y": 441.6875,
+      "width": 18,
+      "height": 18
+    }
+  },
+  {
+    "action": "selectFirstNonPlaceholder",
+    "timestamp": 1774414417275,
+    "duration": 4987,
+    "selector": "target(label:Plan)",
+    "boundingBox": {
+      "x": 474,
+      "y": 491.1875,
+      "width": 128,
+      "height": 44
+    }
+  },
+  {
+    "action": "select",
+    "timestamp": 1774414422995,
+    "duration": 6110,
+    "selector": "target(label:Plan)",
+    "boundingBox": {
+      "x": 474,
+      "y": 491.1875,
+      "width": 128,
+      "height": 44
+    },
+    "narration": "Select the Pro plan from the dropdown."
+  },
+  {
+    "action": "upload",
+    "timestamp": 1774414429825,
+    "duration": 2138,
+    "selector": "target(label:Upload logo)",
+    "boundingBox": {
+      "x": 474,
+      "y": 563.1875,
+      "width": 275,
+      "height": 44
+    },
+    "narration": "Upload a logo file using the accessible label."
+  },
+  {
+    "action": "assert",
+    "timestamp": 1774414432689,
+    "duration": 9,
+    "selector": "target(testId:status-text)"
+  },
+  {
+    "action": "dragAndDrop",
+    "timestamp": 1774414432903,
+    "duration": 1444,
+    "selector": "target(testId:card-alpha) -> target(testId:drop-zone)",
+    "boundingBox": {
+      "x": 806,
+      "y": 480.375,
+      "width": 107.5,
+      "height": 43
+    },
+    "narration": "Drag the Alpha card into the drop zone."
+  },
+  {
+    "action": "assert",
+    "timestamp": 1774414435065,
+    "duration": 6,
+    "selector": "target(testId:drop-hint)"
+  }
+]

@@ -1,0 +1,40 @@
+import type { ActionHandler } from "../action-core.js";
+import { buildEvent, stepTimeoutMs, isTimeoutLikeError } from "../action-core.js";
+import { checkMissingLabels } from "../a11y-guards.js";
+
+export const handleNavigate: ActionHandler = async (ctx, step, events, stepIndex) => {
+  const start = Date.now();
+  if (step.action !== "navigate") return;
+
+  const waitUntil = (step as unknown as { waitUntil?: unknown }).waitUntil;
+  const timeoutMs = stepTimeoutMs(step);
+  let url: string;
+  try {
+    url = new URL(step.url, ctx.baseUrl).toString();
+  } catch {
+    throw new Error(`navigate failed: invalid URL "${step.url}" (base: "${ctx.baseUrl}")`);
+  }
+
+  const resolvedWaitUntil =
+    waitUntil === "load" || waitUntil === "domcontentloaded" || waitUntil === "networkidle"
+      ? waitUntil
+      : "domcontentloaded";
+  try {
+    await ctx.page.goto(url, { waitUntil: resolvedWaitUntil, timeout: timeoutMs });
+  } catch (err) {
+    if (isTimeoutLikeError(err)) {
+      throw new Error(
+        `Navigation to "${url}" timed out after ${String(timeoutMs)}ms (waitUntil: ${resolvedWaitUntil})`,
+        { cause: err },
+      );
+    }
+    throw err;
+  }
+  await ctx.reinjectCursor();
+
+  // Post-navigate a11y audit — warn about interactive elements without accessible names.
+  await checkMissingLabels(ctx.page);
+
+  events.push(buildEvent({ action: "navigate", startTime: start, narration: step.narration }));
+  await ctx.waitAfterStep(stepIndex, step);
+};

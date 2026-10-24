@@ -1,0 +1,742 @@
+import { describe, it, expect } from "vitest";
+import { demoSpecSchema } from "../../src/spec/schema.js";
+import { preStepSchema, stepSchema } from "../../src/spec/step-schema.js";
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
+/** Minimal valid spec object (navigate is the simplest step). */
+function minimalSpec() {
+  return {
+    meta: { title: "T" },
+    runner: { url: "http://localhost:3000" },
+    chapters: [
+      {
+        title: "Ch1",
+        steps: [{ action: "navigate", url: "/" }],
+      },
+    ],
+  };
+}
+
+/** Fully-loaded spec with every optional field populated. */
+function fullSpec() {
+  return {
+    meta: {
+      title: "Full Demo",
+      resolution: { width: 2560, height: 1440 },
+      branding: {
+        logo: "./logo.png",
+        colors: { primary: "#FF0000", background: "#000" },
+      },
+    },
+    runner: {
+      command: "pnpm dev",
+      url: "http://localhost:3000",
+      healthcheck: "http://localhost:3000/health",
+      timeout: 60000,
+    },
+    redaction: {
+      selectors: [".secret"],
+      secrets: ["password"],
+    },
+    narration: {
+      enabled: true,
+      provider: "kokoro",
+      voice: "af_heart",
+      sync: { mode: "auto-sync", bufferMs: 500 },
+    },
+    presentation: {
+      narrationFocus: {
+        enabled: true,
+        cursor: true,
+        highlight: true,
+        zoom: true,
+        scale: 1.15,
+        durationMs: 1200,
+      },
+    },
+    chapters: [
+      {
+        title: "Chapter One",
+        narration: "Intro narration.",
+        steps: [
+          { action: "navigate", url: "/", narration: "Go home" },
+          { action: "click", selector: "#btn", narration: "Click it", focus: { scale: 1.2 } },
+          {
+            action: "type",
+            selector: "#input",
+            text: "hello",
+            narration: "Type text",
+          },
+          { action: "hover", selector: "#el", narration: "Hover" },
+          { action: "scroll", selector: "#list", x: 0, y: 200, narration: "Scroll down" },
+          { action: "wait", timeout: 500, narration: "Pause" },
+          {
+            action: "assert",
+            selector: ".msg",
+            visible: true,
+            text: "OK",
+            narration: "Check",
+          },
+          { action: "screenshot", name: "final", narration: "Capture" },
+          { action: "press", key: "Enter", narration: "Submit" },
+          { action: "check", selector: "#cb", narration: "Check" },
+          { action: "uncheck", selector: "#cb", narration: "Uncheck" },
+          { action: "select", selector: "#sel", option: { value: "pro" }, narration: "Select" },
+          { action: "upload", selector: "#file", file: "./a.txt", narration: "Upload" },
+          {
+            action: "dragAndDrop",
+            from: { selector: "#from" },
+            to: { selector: "#to" },
+            narration: "Drag",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tests                                                             */
+/* ------------------------------------------------------------------ */
+
+describe("demoSpecSchema", () => {
+  /* ---------- Happy-path ------------------------------------------ */
+
+  it("parses a valid complete spec", () => {
+    const result = demoSpecSchema.safeParse(fullSpec());
+    expect(result.success).toBe(true);
+  });
+
+  it("parses the minimum valid spec", () => {
+    const result = demoSpecSchema.safeParse(minimalSpec());
+    expect(result.success).toBe(true);
+  });
+
+  /* ---------- Defaults -------------------------------------------- */
+
+  it("applies default resolution 1920x1080", () => {
+    const result = demoSpecSchema.parse(minimalSpec());
+    expect(result.meta.resolution).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("applies default runner timeout 30000", () => {
+    const result = demoSpecSchema.parse(minimalSpec());
+    expect(result.runner.timeout).toBe(30000);
+  });
+
+  it("applies default scroll x=0, y=800", () => {
+    const spec = minimalSpec();
+    spec.chapters[0]!.steps = [{ action: "scroll" as const }];
+    const result = demoSpecSchema.parse(spec);
+    const step = result.chapters[0]!.steps[0]!;
+    expect(step).toMatchObject({ action: "scroll", x: 0, y: 800 });
+  });
+
+  /* ---------- Each action type validates -------------------------- */
+
+  describe("action types", () => {
+    const cases: Array<{ action: string; step: Record<string, unknown> }> = [
+      { action: "navigate", step: { action: "navigate", url: "/home" } },
+      { action: "click", step: { action: "click", selector: "#btn" } },
+      {
+        action: "type",
+        step: { action: "type", selector: "#in", text: "hi" },
+      },
+      { action: "hover", step: { action: "hover", selector: ".el" } },
+      { action: "scroll", step: { action: "scroll" } },
+      { action: "wait", step: { action: "wait", timeout: 100 } },
+      {
+        action: "waitForLocalDirectoryStable",
+        step: {
+          action: "waitForLocalDirectoryStable",
+          path: "./generated",
+          stableMs: 1000,
+          minFiles: 2,
+          timeoutMs: 5000,
+        },
+      },
+      {
+        action: "waitForLocalFile",
+        step: {
+          action: "waitForLocalFile",
+          path: "./generated/mods/example/init.lua",
+          contains: "minetest.register_chatcommand",
+          timeoutMs: 1000,
+        },
+      },
+      {
+        action: "waitForPageFunction",
+        step: {
+          action: "waitForPageFunction",
+          expression: "document.body.innerText.includes('Ready')",
+          timeoutMs: 1000,
+        },
+      },
+      {
+        action: "evaluate",
+        step: {
+          action: "evaluate",
+          expression: "document.body.dataset.ready = String(arg)",
+          argFromEnv: "CONTROL_PLANE_TOKEN",
+          timeoutMs: 1000,
+        },
+      },
+      {
+        action: "runCommand",
+        step: {
+          action: "runCommand",
+          command: "node --version",
+          timeoutMs: 1000,
+        },
+      },
+      {
+        action: "assert",
+        step: { action: "assert", selector: ".x", visible: true },
+      },
+      { action: "screenshot", step: { action: "screenshot" } },
+      { action: "press", step: { action: "press", key: "Escape" } },
+      { action: "back", step: { action: "back" } },
+      { action: "forward", step: { action: "forward" } },
+      { action: "check", step: { action: "check", selector: "#cb" } },
+      { action: "uncheck", step: { action: "uncheck", selector: "#cb" } },
+      { action: "select", step: { action: "select", selector: "#sel", option: { label: "Pro" } } },
+      { action: "clickFirstVisible", step: { action: "clickFirstVisible", selector: "#btn" } },
+      {
+        action: "selectFirstNonPlaceholder",
+        step: { action: "selectFirstNonPlaceholder", selector: "#sel" },
+      },
+      { action: "upload", step: { action: "upload", selector: "#file", files: ["./a.txt"] } },
+      {
+        action: "dragAndDrop",
+        step: { action: "dragAndDrop", from: { selector: "#a" }, to: { selector: "#b" } },
+      },
+    ];
+
+    for (const { action, step } of cases) {
+      it(`validates "${action}" step`, () => {
+        const spec = minimalSpec();
+        spec.chapters[0]!.steps = [step as never];
+        const result = demoSpecSchema.safeParse(spec);
+        expect(result.success).toBe(true);
+      });
+    }
+  });
+
+  /* ---------- Optional fields ------------------------------------- */
+
+  describe("optional fields", () => {
+    it("branding can be omitted", () => {
+      const spec = minimalSpec();
+      const result = demoSpecSchema.parse(spec);
+      expect(result.meta.branding).toBeUndefined();
+    });
+
+    it("redaction can be omitted", () => {
+      const spec = minimalSpec();
+      const result = demoSpecSchema.parse(spec);
+      expect(result.redaction).toBeUndefined();
+    });
+
+    it("narration can be omitted from chapters and steps", () => {
+      const spec = minimalSpec();
+      const result = demoSpecSchema.parse(spec);
+      expect(result.chapters[0]!.narration).toBeUndefined();
+    });
+
+    it("runner command and healthcheck are optional", () => {
+      const spec = minimalSpec();
+      const result = demoSpecSchema.parse(spec);
+      expect(result.runner.command).toBeUndefined();
+      expect(result.runner.healthcheck).toBeUndefined();
+    });
+
+    it("screenshot name is optional", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "screenshot" as const }];
+      const result = demoSpecSchema.parse(spec);
+      const step = result.chapters[0]!.steps[0]!;
+      expect(step.action).toBe("screenshot");
+    });
+
+    it("defaults narration focus presentation on", () => {
+      const spec = minimalSpec();
+      const result = demoSpecSchema.parse(spec);
+      expect(result.presentation.narrationFocus).toEqual({
+        enabled: true,
+        cursor: true,
+        highlight: true,
+        zoom: true,
+        scale: 1.35,
+        durationMs: 2600,
+        transitionMs: 700,
+      });
+    });
+
+    it("accepts per-step narration focus overrides", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [
+        {
+          action: "click" as const,
+          selector: "#btn",
+          narration: "Click the button",
+          focus: { zoom: false, highlight: true },
+        },
+      ];
+      const result = demoSpecSchema.parse(spec);
+      expect(result.chapters[0]!.steps[0]).toMatchObject({
+        focus: {
+          enabled: true,
+          cursor: true,
+          highlight: true,
+          zoom: false,
+          scale: 1.35,
+          durationMs: 2600,
+          transitionMs: 700,
+        },
+      });
+    });
+  });
+
+  /* ---------- Invalid specs --------------------------------------- */
+
+  describe("invalid specs", () => {
+    it("rejects missing title", () => {
+      const spec = minimalSpec();
+      (spec.meta as Record<string, unknown>).title = undefined;
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects empty title", () => {
+      const spec = minimalSpec();
+      spec.meta.title = "";
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects empty chapters array", () => {
+      const spec = minimalSpec();
+      spec.chapters = [];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects chapter with empty steps", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects invalid runner URL", () => {
+      const spec = minimalSpec();
+      spec.runner.url = "not-a-url";
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects invalid healthcheck URL", () => {
+      const spec = {
+        ...minimalSpec(),
+        runner: {
+          url: "http://localhost:3000",
+          healthcheck: "bad-url",
+        },
+      };
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects negative resolution width", () => {
+      const spec = minimalSpec();
+      spec.meta.resolution = { width: -1, height: 1080 };
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects non-integer resolution height", () => {
+      const spec = minimalSpec();
+      spec.meta.resolution = { width: 1920, height: 10.5 };
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects negative runner timeout", () => {
+      const spec = minimalSpec();
+      (spec.runner as Record<string, unknown>).timeout = -1;
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects wait step with non-positive timeout", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "wait" as const, timeout: 0 }];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects invalid narration sync mode", () => {
+      const spec = minimalSpec() as Record<string, unknown>;
+      spec["narration"] = { enabled: true, sync: { mode: "fast" } };
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects missing runner.url", () => {
+      const spec = minimalSpec();
+      (spec.runner as Record<string, unknown>).url = undefined;
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects missing chapter title", () => {
+      const spec = minimalSpec();
+      (spec.chapters[0] as Record<string, unknown>).title = undefined;
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  /* ---------- Discriminated union --------------------------------- */
+
+  describe("discriminated union", () => {
+    it("rejects unknown action types", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "dance", selector: "#party" } as never];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects click step missing required selector", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "click" } as never];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts click step with target instead of selector", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [
+        { action: "click" as const, target: { by: "role", role: "button", name: "Save" } },
+      ];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects type step missing required text", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "type", selector: "#in" } as never];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects press step missing required key", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "press" } as never];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects wait step missing required timeout", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "wait" } as never];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects waitForLocalFile with neither path nor paths", () => {
+      const result = stepSchema.safeParse({ action: "waitForLocalFile" });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects waitForLocalFile with both path and paths", () => {
+      const result = stepSchema.safeParse({
+        action: "waitForLocalFile",
+        path: "./a.txt",
+        paths: ["./b.txt"],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects upload with neither file nor files", () => {
+      const result = stepSchema.safeParse({ action: "upload", selector: "#input" });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects type step with empty text", () => {
+      const result = stepSchema.safeParse({ action: "type", selector: "#i", text: "" });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects upload with both file and files", () => {
+      const result = stepSchema.safeParse({
+        action: "upload",
+        selector: "#i",
+        file: "a.txt",
+        files: ["b.txt"],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects clickFirstVisible with missing selector", () => {
+      const result = stepSchema.safeParse({ action: "clickFirstVisible" });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects assert count with structured target", () => {
+      const result = stepSchema.safeParse({
+        action: "assert",
+        target: { by: "text", text: "Total" },
+        count: 2,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts assert count with CSS selector", () => {
+      const result = stepSchema.safeParse({
+        action: "assert",
+        selector: ".row",
+        count: 2,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects evaluate with both arg and argFromEnv", () => {
+      const result = stepSchema.safeParse({
+        action: "evaluate",
+        expression: "return arg",
+        arg: "inline",
+        argFromEnv: "TOKEN",
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  /* ---------- Pacing ---------------------------------------------- */
+
+  describe("pacing", () => {
+    it("applies default pacing when not specified", () => {
+      const result = demoSpecSchema.parse(minimalSpec());
+      expect(result.pacing).toBeDefined();
+      expect(result.pacing.cursorDurationMs).toBe(600);
+      expect(result.pacing.typeDelayMs).toBe(50);
+      expect(result.pacing.postClickDelayMs).toBe(500);
+      expect(result.pacing.postTypeDelayMs).toBe(300);
+      expect(result.pacing.postNavigateDelayMs).toBe(1000);
+      expect(result.pacing.settleDelayMs).toBe(200);
+    });
+
+    it("allows overriding individual pacing values", () => {
+      const spec = { ...minimalSpec(), pacing: { cursorDurationMs: 300 } };
+      const result = demoSpecSchema.parse(spec);
+      expect(result.pacing.cursorDurationMs).toBe(300);
+      expect(result.pacing.typeDelayMs).toBe(50);
+    });
+
+    it("allows overriding all pacing values", () => {
+      const spec = {
+        ...minimalSpec(),
+        pacing: {
+          cursorDurationMs: 100,
+          typeDelayMs: 20,
+          postClickDelayMs: 200,
+          postTypeDelayMs: 100,
+          postNavigateDelayMs: 500,
+          settleDelayMs: 50,
+        },
+      };
+      const result = demoSpecSchema.parse(spec);
+      expect(result.pacing.cursorDurationMs).toBe(100);
+      expect(result.pacing.settleDelayMs).toBe(50);
+    });
+  });
+
+  describe("visuals", () => {
+    it("applies default cursor and highlight visuals", () => {
+      const result = demoSpecSchema.parse(minimalSpec());
+      expect(result.visuals).toEqual({ cursor: true, highlight: true });
+    });
+
+    it("allows disabling action highlights while keeping the cursor", () => {
+      const spec = { ...minimalSpec(), visuals: { highlight: false } };
+      const result = demoSpecSchema.parse(spec);
+      expect(result.visuals).toEqual({ cursor: true, highlight: false });
+    });
+  });
+
+  /* ---------- Per-step delay -------------------------------------- */
+
+  describe("per-step delay", () => {
+    it("accepts delay on click step", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "click" as const, selector: "#btn", delay: 100 }];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts delay on type step", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [
+        { action: "type" as const, selector: "#in", text: "hi", delay: 200 },
+      ];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts delay on hover step", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "hover" as const, selector: "#el", delay: 150 }];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts delay on press step", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "press" as const, key: "Enter", delay: 50 }];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts delay on scroll step", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "scroll" as const, delay: 300 }];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects non-positive delay", () => {
+      const spec = minimalSpec();
+      spec.chapters[0]!.steps = [{ action: "click" as const, selector: "#btn", delay: 0 } as never];
+      const result = demoSpecSchema.safeParse(spec);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  /* ---------- Maximum complexity ---------------------------------- */
+
+  it("handles a spec with multiple chapters and many steps", () => {
+    const spec = fullSpec();
+    spec.chapters.push({
+      title: "Chapter Two",
+      steps: [
+        { action: "navigate", url: "/page2" },
+        { action: "screenshot", name: "page2" },
+      ],
+    });
+    const result = demoSpecSchema.safeParse(spec);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.chapters).toHaveLength(2);
+      expect(result.data.chapters[0]!.steps).toHaveLength(14);
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  preStepSchema                                                      */
+/* ------------------------------------------------------------------ */
+
+describe("preStepSchema", () => {
+  it("validates httpRequest with all fields", () => {
+    const result = preStepSchema.safeParse({
+      action: "httpRequest",
+      method: "POST",
+      url: "https://example.com/api/data",
+      headers: { Authorization: "Bearer token" },
+      body: { key: "value" },
+      expectStatus: 201,
+      saveResponseAs: "loginResponse",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("validates setCookie with value", () => {
+    const result = preStepSchema.safeParse({
+      action: "setCookie",
+      name: "session",
+      value: "abc123",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("validates setCookie with valueFrom", () => {
+    const result = preStepSchema.safeParse({
+      action: "setCookie",
+      name: "session",
+      valueFrom: { source: "loginResponse", path: "token" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects setCookie with neither value nor valueFrom", () => {
+    const result = preStepSchema.safeParse({
+      action: "setCookie",
+      name: "session",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("validates setLocalStorage with value", () => {
+    const result = preStepSchema.safeParse({
+      action: "setLocalStorage",
+      key: "authToken",
+      value: "xyz",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects setLocalStorage with neither value nor valueFrom", () => {
+    const result = preStepSchema.safeParse({
+      action: "setLocalStorage",
+      key: "authToken",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid action type", () => {
+    const result = preStepSchema.safeParse({
+      action: "deleteDatabase",
+      url: "http://example.com",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  FIX-14a: scroll NaN/Infinity, redaction empty strings              */
+/* ------------------------------------------------------------------ */
+
+describe("scroll NaN/Infinity validation", () => {
+  it("rejects scroll step with x: NaN", () => {
+    const result = stepSchema.safeParse({ action: "scroll", x: NaN });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects scroll step with x: Infinity", () => {
+    const result = stepSchema.safeParse({ action: "scroll", x: Infinity });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("redaction empty string validation", () => {
+  it("rejects redaction with empty secret string", () => {
+    const spec = {
+      ...minimalSpec(),
+      redaction: { secrets: [""] },
+    };
+    const result = demoSpecSchema.safeParse(spec);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects redaction with empty selector string", () => {
+    const spec = {
+      ...minimalSpec(),
+      redaction: { selectors: [""] },
+    };
+    const result = demoSpecSchema.safeParse(spec);
+    expect(result.success).toBe(false);
+  });
+});

@@ -1,0 +1,291 @@
+import { describe, it, expect } from "vitest";
+import { buildTimeline, extendTimelineForNarration } from "../../src/editor/timeline.js";
+import type { ActionEvent } from "../../src/playback/types.js";
+import type { DemoSpec } from "../../src/spec/types.js";
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
+function makeSpec(overrides?: Partial<DemoSpec>): DemoSpec {
+  return {
+    meta: {
+      title: "Test Demo",
+      resolution: { width: 1920, height: 1080 },
+    },
+    runner: { url: "http://localhost:3000", timeout: 30000 },
+    chapters: [
+      {
+        title: "Chapter One",
+        steps: [
+          { action: "navigate" as const, url: "/" },
+          { action: "click" as const, selector: "#btn" },
+        ],
+      },
+    ],
+    ...overrides,
+  } as DemoSpec;
+}
+
+function makeEvents(count: number, gap = 500): ActionEvent[] {
+  return Array.from({ length: count }, (_, i) => ({
+    action: i === 1 ? "click" : "navigate",
+    timestamp: 1000 + i * (1000 + gap),
+    duration: 1000,
+    selector: i === 1 ? "#btn" : undefined,
+    boundingBox: i === 1 ? { x: 100, y: 200, width: 50, height: 30 } : undefined,
+  }));
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tests                                                             */
+/* ------------------------------------------------------------------ */
+
+describe("buildTimeline", () => {
+  it("returns empty segments for empty events", () => {
+    const timeline = buildTimeline([], makeSpec());
+    expect(timeline.segments).toHaveLength(0);
+    expect(timeline.totalDurationMs).toBe(0);
+  });
+
+  it("creates intro and outro segments", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const types = timeline.segments.map((s) => s.type);
+    expect(types).toContain("intro");
+    expect(types).toContain("outro");
+  });
+
+  it("intro segment uses spec title as label", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const intro = timeline.segments.find((s) => s.type === "intro");
+    expect(intro?.label).toBe("Test Demo");
+  });
+
+  it("intro segment is 2000ms starting at 0", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const intro = timeline.segments.find((s) => s.type === "intro");
+    expect(intro).toBeDefined();
+    expect(intro!.startMs).toBe(0);
+    expect(intro!.endMs - intro!.startMs).toBe(2000);
+  });
+
+  it("outro segment starts after the last captured event and ends at the timeline end", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const outro = timeline.segments.find((s) => s.type === "outro");
+    const first = events[0]!;
+    const last = events[events.length - 1]!;
+    const eventSpanMs = last.timestamp + last.duration - first.timestamp;
+    expect(outro).toBeDefined();
+    expect(outro!.startMs).toBe(eventSpanMs);
+    expect(outro!.endMs).toBe(timeline.totalDurationMs);
+  });
+
+  it("creates chapter title segments", () => {
+    const spec = makeSpec();
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, spec);
+    const chapters = timeline.segments.filter((s) => s.type === "chapter");
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0]!.label).toBe("Chapter One");
+  });
+
+  it("chapter title segments are 1500ms", () => {
+    const timeline = buildTimeline(makeEvents(2), makeSpec());
+    const chapter = timeline.segments.find((s) => s.type === "chapter");
+    expect(chapter).toBeDefined();
+    expect(chapter!.endMs - chapter!.startMs).toBe(1500);
+  });
+
+  it("creates content segments for events", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const contentSegments = timeline.segments.filter((s) => s.type === "content");
+    expect(contentSegments).toHaveLength(2);
+  });
+
+  it("creates callout segments for click events with boundingBox", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const callouts = timeline.segments.filter((s) => s.type === "callout");
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0]!.zoom).toBeDefined();
+    expect(callouts[0]!.zoom!.x).toBe(100);
+    expect(callouts[0]!.zoom!.padding).toBe(40);
+  });
+
+  it("callout segments have 1500ms duration", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const callouts = timeline.segments.filter((s) => s.type === "callout");
+    expect(callouts).toHaveLength(1);
+    expect(callouts[0]!.endMs - callouts[0]!.startMs).toBe(1500);
+  });
+
+  it("applies dead-time compression when gap > 3000ms", () => {
+    const events: ActionEvent[] = [
+      { action: "navigate", timestamp: 1000, duration: 500 },
+      { action: "click", timestamp: 6000, duration: 500, selector: "#btn" },
+    ];
+    const spec = makeSpec();
+    const timeline = buildTimeline(events, spec);
+    const compressed = timeline.segments.filter((s) => s.type === "content" && s.speedFactor === 3);
+    expect(compressed).toHaveLength(1);
+  });
+
+  it("does not apply dead-time compression when gap <= 3000ms", () => {
+    const events: ActionEvent[] = [
+      { action: "navigate", timestamp: 1000, duration: 500 },
+      { action: "click", timestamp: 2000, duration: 500, selector: "#btn" },
+    ];
+    const spec = makeSpec();
+    const timeline = buildTimeline(events, spec);
+    const compressed = timeline.segments.filter(
+      (s) => s.type === "content" && s.speedFactor !== undefined,
+    );
+    expect(compressed).toHaveLength(0);
+  });
+
+  it("totalDurationMs includes the event span plus outro", () => {
+    const events = makeEvents(2);
+    const first = events[0]!;
+    const last = events[events.length - 1]!;
+    const expectedDuration = last.timestamp + last.duration - first.timestamp + 2000;
+    const timeline = buildTimeline(events, makeSpec());
+    expect(timeline.totalDurationMs).toBe(expectedDuration);
+  });
+
+  it("uses spec resolution", () => {
+    const spec = makeSpec({
+      meta: {
+        title: "T",
+        resolution: { width: 2560, height: 1440 },
+      },
+    } as Partial<DemoSpec>);
+    const timeline = buildTimeline([], spec);
+    expect(timeline.resolution).toEqual({ width: 2560, height: 1440 });
+  });
+
+  it("handles multiple chapters", () => {
+    const spec = makeSpec({
+      chapters: [
+        { title: "Ch1", steps: [{ action: "navigate" as const, url: "/" }] },
+        { title: "Ch2", steps: [{ action: "click" as const, selector: "#a" }] },
+      ],
+    } as Partial<DemoSpec>);
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, spec);
+    const chapters = timeline.segments.filter((s) => s.type === "chapter");
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0]!.label).toBe("Ch1");
+    expect(chapters[1]!.label).toBe("Ch2");
+  });
+
+  it("content segments use video-relative timestamps", () => {
+    const events: ActionEvent[] = [
+      { action: "navigate", timestamp: 5000, duration: 200 },
+      { action: "click", timestamp: 5500, duration: 300, selector: "#btn" },
+    ];
+    const timeline = buildTimeline(events, makeSpec());
+    const contentSegments = timeline.segments.filter((s) => s.type === "content");
+    expect(contentSegments[0]!.startMs).toBe(0);
+    expect(contentSegments[1]!.startMs).toBe(500);
+  });
+});
+
+describe("extendTimelineForNarration", () => {
+  it("returns same timeline when narration fits", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const result = extendTimelineForNarration(timeline, timeline.totalDurationMs - 100);
+    expect(result).toBe(timeline); // same reference, no change
+  });
+
+  it("extends totalDurationMs when narration is longer", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const extended = extendTimelineForNarration(timeline, timeline.totalDurationMs + 5000);
+    expect(extended.totalDurationMs).toBe(timeline.totalDurationMs + 5000);
+  });
+
+  it("repositions outro to new end", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const newDuration = timeline.totalDurationMs + 5000;
+    const extended = extendTimelineForNarration(timeline, newDuration);
+    const outro = extended.segments.find((s) => s.type === "outro");
+    expect(outro).toBeDefined();
+    expect(outro!.endMs).toBe(newDuration);
+  });
+
+  it("preserves non-outro segments unchanged", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const extended = extendTimelineForNarration(timeline, timeline.totalDurationMs + 5000);
+    const nonOutro = extended.segments.filter((s) => s.type !== "outro");
+    const origNonOutro = timeline.segments.filter((s) => s.type !== "outro");
+    expect(nonOutro).toEqual(origNonOutro);
+  });
+
+  it("returns same reference at exact boundary", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const result = extendTimelineForNarration(timeline, timeline.totalDurationMs);
+    expect(result).toBe(timeline);
+  });
+
+  it("returns same timeline for 0ms narration", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const result = extendTimelineForNarration(timeline, 0);
+    expect(result).toBe(timeline);
+  });
+
+  it("does not mutate the original timeline after extension", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const originalDuration = timeline.totalDurationMs;
+    const originalSegments = [...timeline.segments];
+    extendTimelineForNarration(timeline, timeline.totalDurationMs + 5000);
+    expect(timeline.totalDurationMs).toBe(originalDuration);
+    expect(timeline.segments).toEqual(originalSegments);
+  });
+
+  it("repositions extended outro startMs to newTotal - 2000", () => {
+    const events = makeEvents(2);
+    const timeline = buildTimeline(events, makeSpec());
+    const newDuration = timeline.totalDurationMs + 5000;
+    const extended = extendTimelineForNarration(timeline, newDuration);
+    const outro = extended.segments.find((s) => s.type === "outro");
+    expect(outro).toBeDefined();
+    expect(outro!.startMs).toBe(newDuration - 2000);
+  });
+
+  it("never shortens the captured action span when narration ends early", () => {
+    const events: ActionEvent[] = [
+      { action: "navigate", timestamp: 1000, duration: 200 },
+      { action: "click", timestamp: 11000, duration: 200, selector: "#btn" },
+    ];
+    const timeline = buildTimeline(events, makeSpec());
+    const result = extendTimelineForNarration(timeline, 3000);
+
+    expect(result).toBe(timeline);
+    expect(result.totalDurationMs).toBe(12200);
+    expect(result.totalDurationMs).toBeGreaterThanOrEqual(timeline.totalDurationMs);
+    const outro = result.segments.find((segment) => segment.type === "outro");
+    expect(outro).toMatchObject({ startMs: 10200, endMs: 12200 });
+  });
+
+  it("leaves the timeline unchanged whenever narration is shorter", () => {
+    const events: ActionEvent[] = [
+      { action: "navigate", timestamp: 1000, duration: 200 },
+      { action: "click", timestamp: 11000, duration: 200, selector: "#btn" },
+    ];
+    const timeline = buildTimeline(events, makeSpec());
+    const result = extendTimelineForNarration(timeline, 9800);
+    expect(result).toBe(timeline);
+  });
+});

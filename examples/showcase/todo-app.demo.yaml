@@ -1,0 +1,78 @@
+meta:
+  title: "TaskFlow - Task Manager Demo"
+  resolution:
+    width: 1920
+    height: 1080
+
+runner:
+  command: "node examples/todo-app/serve.mjs"
+  url: "http://localhost:4567"
+  timeout: 10000
+
+chapters:
+  - title: "Welcome to TaskFlow"
+    steps:
+      - action: navigate
+        url: "http://localhost:4567"
+        narration: "Welcome to TaskFlow, a simple and elegant task manager."
+      - action: wait
+        timeout: 1000
+
+  - title: "Getting Started"
+    steps:
+      - action: click
+        selector: "#get-started"
+        narration: "Let's click Get Started to begin managing our tasks."
+      - action: wait
+        timeout: 800
+
+  - title: "Adding Tasks"
+    steps:
+      - action: click
+        selector: "#task-input"
+      - action: type
+        selector: "#task-input"
+        text: "Design new landing page"
+        narration: "We'll type in our first task — designing a new landing page."
+      - action: click
+        selector: "#add-btn"
+      - action: wait
+        timeout: 500
+      - action: type
+        selector: "#task-input"
+        text: "Review pull requests"
+        narration: "Next, let's add a task to review pull requests."
+      - action: click
+        selector: "#add-btn"
+      - action: wait
+        timeout: 500
+      - action: type
+        selector: "#task-input"
+        text: "Write unit tests"
+        narration: "And one more — writing unit tests."
+      - action: click
+        selector: "#add-btn"
+      - action: wait
+        timeout: 500
+
+  - title: "Completing a Task"
+    steps:
+      - action: click
+        selector: ".task-checkbox"
+        nth: 0
+        narration: "To mark a task as done, just click the checkbox."
+      - action: wait
+        timeout: 800
+
+  - title: "Filtering Tasks"
+    steps:
+      - action: click
+        selector: "[data-filter='completed']"
+        narration: "We can filter to see only completed tasks."
+      - action: wait
+        timeout: 800
+      - action: click
+        selector: "[data-filter='all']"
+        narration: "Or switch back to view all tasks at once."
+      - action: wait
+        timeout: 500
